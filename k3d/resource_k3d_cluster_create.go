@@ -7,16 +7,17 @@ import (
 	"strings"
 
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/rancher/k3d/v3/pkg/cluster"
 )
 
 func resourceCluster() *schema.Resource {
 	return &schema.Resource{
 		Schema: map[string]*schema.Schema{
 			"name": {
-				Type:        schema.TypeString,
-				Required:    true,
-				Description: "The name of the resource, also acts as it's unique ID",
-				// ValidateFunc: validateName,
+				Type:         schema.TypeString,
+				Required:     true,
+				Description:  "The name of the resource, also acts as it's unique ID",
+				ValidateFunc: validateName,
 			},
 		},
 
@@ -31,15 +32,25 @@ func resourceCluster() *schema.Resource {
 	}
 }
 
+func validateName(val interface{}, key string) (warns []string, errs []error) {
+	name := val.(string)
+
+	if err := cluster.CheckName(name); err != nil {
+		errs = append(errs, fmt.Errorf("%s", err))
+	}
+
+	return
+}
+
 func resourceClusterCreate(d *schema.ResourceData, meta interface{}) error {
+
 	name := ""
 	if v, ok := d.GetOk("name"); ok {
 		name = v.(string)
 	}
-	out, err := createCluster(name)
 
-	if err != nil {
-		return fmt.Errorf("Error creating cluster: '%s'\n%s", name, string(out))
+	if err := createCluster(name); err != nil {
+		return err
 	}
 
 	d.SetId(name)
@@ -55,7 +66,7 @@ func resourceClusterRead(d *schema.ResourceData, meta interface{}) error {
 
 	if err != nil {
 		d.SetId("")
-		return fmt.Errorf("Error reading cluster: '%s'\n%s", id, string(out))
+		return fmt.Errorf("Reading cluster: '%s'\n\n%s", id, string(out))
 	}
 
 	parts := strings.Fields(string(out))
@@ -69,16 +80,13 @@ func resourceClusterUpdate(d *schema.ResourceData, meta interface{}) error {
 	id := d.Id()
 	if d.HasChange("name") {
 		name := d.Get("name").(string)
-		out, err := deleteCluster(id)
 
-		if err != nil {
-			return fmt.Errorf("Error deleting cluster: '%s'\n%s", id, string(out))
+		if err := deleteCluster(id); err != nil {
+			return err
 		}
 
-		out, err = createCluster(name)
-
-		if err != nil {
-			return fmt.Errorf("Error creating cluster: '%s'\n%s", name, string(out))
+		if err := createCluster(name); err != nil {
+			return err
 		}
 
 		d.SetId(name)
@@ -89,25 +97,34 @@ func resourceClusterUpdate(d *schema.ResourceData, meta interface{}) error {
 
 func resourceClusterDelete(d *schema.ResourceData, meta interface{}) error {
 	id := d.Id()
-	out, err := deleteCluster(id)
 
-	if err != nil {
-		return fmt.Errorf("Error deleting cluster: '%s'\n%s", id, string(out))
+	if err := deleteCluster(id); err != nil {
+		return err
 	}
 
 	return nil
 }
 
-func deleteCluster(name string) ([]byte, error) {
+func deleteCluster(name string) error {
 	log.Printf("[DEBUG] Deleting k3d cluster: %s", name)
 	cmd := exec.Command("k3d", "cluster", "delete", name)
+	out, err := cmd.CombinedOutput()
 
-	return cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Deleting cluster: '%s'\n\n%s", name, string(out))
+	}
+
+	return nil
 }
 
-func createCluster(name string) ([]byte, error) {
+func createCluster(name string) error {
 	log.Printf("[DEBUG] Creating k3d cluster: %s", name)
 	cmd := exec.Command("k3d", "cluster", "create", name)
+	out, err := cmd.CombinedOutput()
 
-	return cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("Creating cluster: '%s'\n\n%s", name, string(out))
+	}
+
+	return nil
 }
