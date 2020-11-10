@@ -19,6 +19,12 @@ func resourceCluster() *schema.Resource {
 				Description:  "The name of the resource, also acts as it's unique ID",
 				ValidateFunc: validateName,
 			},
+			"servers": {
+				Type:        schema.TypeString,
+				Optional:    true,
+				Default:     "1",
+				Description: "Specify how many servers you want to create (default 1)",
+			},
 		},
 
 		Create: resourceClusterCreate,
@@ -28,7 +34,6 @@ func resourceCluster() *schema.Resource {
 		Importer: &schema.ResourceImporter{
 			State: schema.ImportStatePassthrough,
 		},
-		// Schema: map[string]*schema.Schema{},
 	}
 }
 
@@ -43,52 +48,54 @@ func validateName(val interface{}, key string) (warns []string, errs []error) {
 }
 
 func resourceClusterCreate(d *schema.ResourceData, meta interface{}) error {
-
-	name := ""
-	if v, ok := d.GetOk("name"); ok {
-		name = v.(string)
-	}
-
-	if err := createCluster(name); err != nil {
+	if err := createCluster(d); err != nil {
 		return err
 	}
 
+	name := d.Get("name").(string)
 	d.SetId(name)
+
 	return nil
 }
 
 func resourceClusterRead(d *schema.ResourceData, meta interface{}) error {
-	id := d.Id()
-
-	log.Printf("[DEBUG] Read k3d cluster: %s", id)
-	cmd := exec.Command("k3d", "cluster", "list", id, "--no-headers")
-	out, err := cmd.CombinedOutput()
-
+	out, err := listCluster(d)
 	if err != nil {
 		d.SetId("")
-		return fmt.Errorf("Reading cluster: '%s'\n\n%s", id, string(out))
+
+		return err
 	}
 
 	parts := strings.Fields(string(out))
+	name := parts[0]
+	servers := strings.Split(parts[1], "/")[0]
+	d.Set("name", name)
+	d.Set("servers", servers)
 
-	d.Set("name", parts[0])
 	return nil
 }
 
 // This may be completely wrong and stupid
 func resourceClusterUpdate(d *schema.ResourceData, meta interface{}) error {
-	id := d.Id()
+	changed := false
 	if d.HasChange("name") {
+		changed = true
+	}
+
+	if d.HasChange("servers") {
+		changed = true
+	}
+
+	if changed {
+		if err := deleteCluster(d); err != nil {
+			return err
+		}
+
+		if err := createCluster(d); err != nil {
+			return err
+		}
+
 		name := d.Get("name").(string)
-
-		if err := deleteCluster(id); err != nil {
-			return err
-		}
-
-		if err := createCluster(name); err != nil {
-			return err
-		}
-
 		d.SetId(name)
 	}
 
@@ -96,30 +103,35 @@ func resourceClusterUpdate(d *schema.ResourceData, meta interface{}) error {
 }
 
 func resourceClusterDelete(d *schema.ResourceData, meta interface{}) error {
-	id := d.Id()
-
-	if err := deleteCluster(id); err != nil {
+	if err := deleteCluster(d); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func deleteCluster(name string) error {
-	log.Printf("[DEBUG] Deleting k3d cluster: %s", name)
-	cmd := exec.Command("k3d", "cluster", "delete", name)
+func deleteCluster(d *schema.ResourceData) error {
+	id := d.Id()
+
+	log.Printf("[DEBUG] Deleting k3d cluster: %s", id)
+	args := []string{"cluster", "delete", id}
+	cmd := exec.Command("k3d", args...)
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
-		return fmt.Errorf("Deleting cluster: '%s'\n\n%s", name, string(out))
+		return fmt.Errorf("Deleting cluster: '%s'\n\n%s", id, string(out))
 	}
 
 	return nil
 }
 
-func createCluster(name string) error {
+func createCluster(d *schema.ResourceData) error {
+	name := d.Get("name").(string)
+	servers := d.Get("servers").(string)
+
 	log.Printf("[DEBUG] Creating k3d cluster: %s", name)
-	cmd := exec.Command("k3d", "cluster", "create", name)
+	args := []string{"cluster", "create", name, "--servers", servers}
+	cmd := exec.Command("k3d", args...)
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
@@ -127,4 +139,19 @@ func createCluster(name string) error {
 	}
 
 	return nil
+}
+
+func listCluster(d *schema.ResourceData) ([]byte, error) {
+	id := d.Id()
+
+	log.Printf("[DEBUG] Read k3d cluster: %s", id)
+	args := []string{"cluster", "list", id, "--no-headers"}
+	cmd := exec.Command("k3d", args...)
+	out, err := cmd.CombinedOutput()
+
+	if err != nil {
+		return out, fmt.Errorf("Reading cluster: '%s'\n\n%s", id, string(out))
+	}
+
+	return out, nil
 }

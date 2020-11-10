@@ -12,4 +12,5 @@ provider "k3d" {}
 
 resource "k3d_cluster" "local" {
   name = "example-cluster"
+  servers = 1
 }
