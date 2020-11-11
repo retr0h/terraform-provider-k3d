@@ -12,27 +12,35 @@ import (
 
 func resourceCluster() *schema.Resource {
 	return &schema.Resource{
+		Create: resourceClusterCreate,
+		Read:   resourceClusterRead,
+		// Update: resourceClusterUpdate,
+		Delete: resourceClusterDelete,
+		Importer: &schema.ResourceImporter{
+			State: schema.ImportStatePassthrough,
+		},
+
+		Timeouts: &schema.ResourceTimeout{
+			Create: schema.DefaultTimeout(defaultCreateTimeout),
+			// Update: schema.DefaultTimeout(defaultUpdateTimeout),
+			Delete: schema.DefaultTimeout(defaultDeleteTimeout),
+		},
+
 		Schema: map[string]*schema.Schema{
 			"name": {
 				Type:         schema.TypeString,
-				Required:     true,
 				Description:  "The name of the resource, also acts as it's unique ID",
+				Required:     true,
+				ForceNew:     true,
 				ValidateFunc: validateName,
 			},
 			"servers": {
 				Type:        schema.TypeString,
 				Optional:    true,
+				ForceNew:    true,
 				Default:     "1",
 				Description: "Specify how many servers you want to create (default 1)",
 			},
-		},
-
-		Create: resourceClusterCreate,
-		Read:   resourceClusterRead,
-		Update: resourceClusterUpdate,
-		Delete: resourceClusterDelete,
-		Importer: &schema.ResourceImporter{
-			State: schema.ImportStatePassthrough,
 		},
 	}
 }
@@ -55,7 +63,7 @@ func resourceClusterCreate(d *schema.ResourceData, meta interface{}) error {
 	name := d.Get("name").(string)
 	d.SetId(name)
 
-	return nil
+	return resourceClusterRead(d, meta)
 }
 
 func resourceClusterRead(d *schema.ResourceData, meta interface{}) error {
@@ -69,35 +77,11 @@ func resourceClusterRead(d *schema.ResourceData, meta interface{}) error {
 	parts := strings.Fields(string(out))
 	name := parts[0]
 	servers := strings.Split(parts[1], "/")[0]
+
 	d.Set("name", name)
 	d.Set("servers", servers)
 
-	return nil
-}
-
-// This may be completely wrong and stupid
-func resourceClusterUpdate(d *schema.ResourceData, meta interface{}) error {
-	changed := false
-	if d.HasChange("name") {
-		changed = true
-	}
-
-	if d.HasChange("servers") {
-		changed = true
-	}
-
-	if changed {
-		if err := deleteCluster(d); err != nil {
-			return err
-		}
-
-		if err := createCluster(d); err != nil {
-			return err
-		}
-
-		name := d.Get("name").(string)
-		d.SetId(name)
-	}
+	// Computed values
 
 	return nil
 }
@@ -106,6 +90,8 @@ func resourceClusterDelete(d *schema.ResourceData, meta interface{}) error {
 	if err := deleteCluster(d); err != nil {
 		return err
 	}
+
+	d.SetId("")
 
 	return nil
 }

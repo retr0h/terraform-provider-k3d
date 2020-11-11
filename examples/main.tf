@@ -10,7 +10,7 @@ terraform {
 
 provider "k3d" {}
 
-resource "k3d_cluster" "local" {
-  name = "example-cluster"
+resource "k3d_cluster" "default" {
+  name = "test-cluster"
   servers = 1
 }
